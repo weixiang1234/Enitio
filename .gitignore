@@ -1,0 +1,21 @@
+# PlatformIO build files
+.pio/
+.pioenvs/
+.piolibdeps/
+
+# VS Code settings
+.vscode/
+
+# Compiled output
+*.bin
+*.elf
+*.map
+*.o
+*.a
+
+# Logs
+*.log
+
+# System files
+.DS_Store
+Thumbs.db
