@@ -1,205 +1,658 @@
-# ESP32 Joystick Servo Maze Controller
+# ESP32 Joystick Servo Maze Code Explanation
 
-This project uses an ESP32, joystick inputs, and a PCA9685 servo driver to control servo motors for a physical maze board. The joystick does not directly set the servo angle. Instead, the joystick push strength controls how fast the servo moves toward its limit, giving smoother and more stable control.
+This document explains the code in a simple way so you can quickly understand how the maze control system works.
 
-## Project Overview
+## 1. Project Purpose
 
-The goal of this project is to build a joystick-controlled servo maze system where the player can tilt the maze board by moving joysticks. The firmware reads analog joystick values, applies deadzone and smoothing logic, then moves the servos gradually within calibrated angle limits.
+The code controls a maze board using:
 
-## Features
+- ESP32
+- PCA9685 servo driver
+- 8 joystick inputs
+- 8 servo outputs
 
-* ESP32-based control system
-* PlatformIO project structure
-* PCA9685 servo driver support
-* Joystick-controlled servo movement
-* Servo angle limits for safer movement
-* Auto-return to center when joystick is released
-* Deadzone filtering to reduce joystick noise
-* Adjustable speed and response tuning
-* Designed for maze board control
+Each joystick channel controls one servo channel.  
+The joystick does **not directly set the servo angle**. Instead, the joystick controls the **speed of movement**.
 
-## Hardware Used
+This makes the board movement smoother and easier to control.
 
-* ESP32 development board
-* PCA9685 16-channel PWM servo driver
-* Analog joystick module
-* Servo motors, such as MG90S
-* External 5V servo power supply
-* Jumper wires
-* Common ground connection between ESP32 and servo power supply
+---
 
-## Wiring Overview
+## 2. Main Control Idea
 
-| Component           | ESP32 / PCA9685 Connection            |
-| ------------------- | ------------------------------------- |
-| PCA9685 SDA         | ESP32 GPIO 21                         |
-| PCA9685 SCL         | ESP32 GPIO 22                         |
-| PCA9685 VCC         | ESP32 3.3V                            |
-| PCA9685 GND         | ESP32 GND                             |
-| PCA9685 V+          | External 5V servo power               |
-| Servo signal        | PCA9685 servo channel                 |
-| Joystick X/Y output | ESP32 analog input pins               |
-| Joystick GND        | ESP32 GND                             |
-| Joystick VCC        | ESP32 3.3V or 5V, depending on module |
-
-> Important: The ESP32 ground, PCA9685 ground, joystick ground, and external servo power ground must be connected together.
-
-## Project Structure
+The important idea is:
 
 ```text
-esp32_joystick_servo/
-├── platformio.ini
-├── src/
-│   └── main.cpp
-├── include/
-├── lib/
-├── test/
-├── README.md
-└── .gitignore
+Joystick push amount → movement speed → target servo angle → servo moves
 ```
 
-## Software Requirements
+So the servo angle changes gradually over time.
 
-* Visual Studio Code
-* PlatformIO extension
-* ESP32 board package
-* Required libraries listed in `platformio.ini`
-
-## How to Build
-
-Open the project folder in Visual Studio Code.
-
-Make sure the folder contains:
+This is different from direct control:
 
 ```text
-platformio.ini
+Joystick position → servo angle
 ```
 
-Then build the project using PlatformIO:
+Direct control can be more shaky because small joystick noise directly changes the servo position.
 
-```powershell
-pio run
+---
+
+## 3. Hardware Pins
+
+### I2C Pins for PCA9685
+
+```cpp
+static constexpr int I2C_SDA_PIN = 21;
+static constexpr int I2C_SCL_PIN = 22;
 ```
 
-Or use the PlatformIO sidebar:
+These pins connect the ESP32 to the PCA9685 servo driver.
+
+### Joystick and Servo Channel Setup
+
+Each row in `channelCfg` represents one joystick-servo pair.
+
+Example:
+
+```cpp
+{25, 0, 1, 100, 4000, 100, 90.0f, DEFAULT_SERVO_LIMIT_DEG}
+```
+
+Meaning:
+
+| Field | Meaning |
+|---|---|
+| `25` | ESP32 ADC pin for joystick |
+| `0` | PCA9685 servo channel |
+| `1` | Servo direction |
+| `100` | Minimum expected ADC value |
+| `4000` | Maximum expected ADC value |
+| `100` | Deadzone around joystick center |
+| `90.0f` | Servo center angle |
+| `DEFAULT_SERVO_LIMIT_DEG` | Maximum angle away from center |
+
+---
+
+## 4. Important Tuning Parameters
+
+These values affect how smooth and responsive the maze feels.
+
+### Control Interval
+
+```cpp
+static constexpr unsigned long CONTROL_INTERVAL_MS = 10;
+```
+
+The control loop runs every 10 ms, or about 100 times per second.
+
+A fixed control interval helps the servo movement stay consistent.
+
+---
+
+### Maximum Speed
+
+```cpp
+static constexpr float MAX_SPEED_DPS = 30.0f;
+```
+
+This controls how fast the servo target angle changes when the joystick is pushed.
+
+`DPS` means degrees per second.
+
+Higher value:
+- faster response
+- more possible shaking
+
+Lower value:
+- smoother movement
+- slower response
+
+---
+
+### Return Speed
+
+```cpp
+static constexpr float RETURN_SPEED_DPS = 30.0f;
+```
+
+This controls how fast the servo returns to center when the joystick is released.
+
+If the board shakes when returning to center, reduce this value.
+
+Example:
+
+```cpp
+static constexpr float RETURN_SPEED_DPS = 15.0f;
+```
+
+---
+
+### Joystick Smoothing
+
+```cpp
+static constexpr float COMMAND_SMOOTH_ALPHA = 0.04f;
+```
+
+This smooths the joystick input.
+
+Lower value:
+- smoother
+- slower response
+
+Higher value:
+- faster response
+- more sensitive to noise
+
+Recommended range:
 
 ```text
-PlatformIO → Project Tasks → Build
+0.02 to 0.08
 ```
 
-## How to Upload
+---
 
-Connect the ESP32 board to your computer using USB.
+### Exponential Response
 
-Then upload the firmware:
-
-```powershell
-pio run --target upload
+```cpp
+static constexpr float RESPONSE_EXPONENT = 1.3f;
 ```
 
-Or use the PlatformIO sidebar:
+This makes small joystick movement less sensitive.
+
+Effect:
 
 ```text
-PlatformIO → Project Tasks → Upload
+Small push → slow movement
+Large push → faster movement
 ```
 
-## How to Open Serial Monitor
+This helps reduce shaking near the joystick center.
 
-Use:
+---
 
-```powershell
-pio device monitor
+### Target Threshold
+
+```cpp
+static constexpr float TARGET_THRESHOLD_DEG = 0.05f;
 ```
 
-This is useful for checking joystick readings, servo angles, and debugging messages.
+The servo is updated only if the target angle changes by at least this amount.
 
-## Control Concept
+This reduces unnecessary servo commands.
 
-The joystick controls the speed and direction of servo movement.
+If there is shaking caused by too many small updates, increase it slightly:
 
-When the joystick is near the center:
+```cpp
+static constexpr float TARGET_THRESHOLD_DEG = 0.1f;
+```
+
+---
+
+### Servo Limit
+
+```cpp
+static constexpr float DEFAULT_SERVO_LIMIT_DEG = 30.0f;
+```
+
+This limits how far each servo can move away from its center angle.
+
+Example:
+
+If the center is `90°` and limit is `30°`, the servo can move from:
 
 ```text
-Servo stays near center
+60° to 120°
 ```
 
-When the joystick is pushed slightly:
+For a physical maze board, too large a limit can cause strong tilting and shaking.
+
+For stability, you can try:
+
+```cpp
+static constexpr float DEFAULT_SERVO_LIMIT_DEG = 20.0f;
+```
+
+or:
+
+```cpp
+static constexpr float DEFAULT_SERVO_LIMIT_DEG = 15.0f;
+```
+
+---
+
+## 5. Code Structure
+
+The code is organized into these main sections:
 
 ```text
-Servo moves slowly
+1. System configuration
+2. Control tuning
+3. Per-channel configuration
+4. Servo objects
+5. Runtime state
+6. Helper functions
+7. Joystick calibration
+8. Joystick reading
+9. Servo output
+10. Core update logic
+11. Debug printing
+12. setup()
+13. loop()
 ```
 
-When the joystick is pushed further:
+---
+
+## 6. Runtime State
+
+Each channel has a `ChannelState`.
+
+```cpp
+struct ChannelState {
+    int centerRaw;
+    int raw;
+    float filteredCmd;
+    float targetDeg;
+    float lastSentDeg;
+    float speedDps;
+    bool inDeadzone;
+};
+```
+
+### What each value means
+
+| Variable | Meaning |
+|---|---|
+| `centerRaw` | Joystick center value after calibration |
+| `raw` | Latest joystick ADC value |
+| `filteredCmd` | Smoothed joystick command from -1 to +1 |
+| `targetDeg` | Current target servo angle |
+| `lastSentDeg` | Last angle sent to servo |
+| `speedDps` | Current movement speed |
+| `inDeadzone` | Whether joystick is near center |
+
+---
+
+## 7. Joystick Calibration
+
+Function:
+
+```cpp
+calibrateAllJoysticks();
+```
+
+During startup, the ESP32 reads each joystick many times and calculates its center value.
+
+Important:
 
 ```text
-Servo moves faster toward the angle limit
+Do not touch the joystick during calibration.
 ```
 
-When the joystick is released:
+This value is stored as:
+
+```cpp
+channelState[ch].centerRaw
+```
+
+The code uses this value to know where the joystick center is.
+
+---
+
+## 8. Joystick Reading
+
+Function:
+
+```cpp
+readJoystickCommand(int ch)
+```
+
+This function converts raw ADC values into a normalized command:
 
 ```text
-Servo gradually returns to center
+-1.0 to +1.0
 ```
 
-This gives better control compared to directly mapping joystick position to servo angle.
+Example:
 
-## Important Parameters to Tune
+| Joystick Position | Command |
+|---|---:|
+| Full left / down | -1.0 |
+| Center | 0.0 |
+| Full right / up | +1.0 |
 
-These values may need to be adjusted based on your actual joystick and maze board.
+The function also applies:
 
-| Parameter                  | Purpose                                    |
-| -------------------------- | ------------------------------------------ |
-| Servo center angle         | Sets the neutral board position            |
-| Servo minimum angle        | Limits maximum tilt in one direction       |
-| Servo maximum angle        | Limits maximum tilt in the other direction |
-| Joystick minimum raw value | Calibrates joystick low end                |
-| Joystick maximum raw value | Calibrates joystick high end               |
-| Deadzone                   | Ignores small joystick noise near center   |
-| Maximum speed              | Controls how fast servo can move           |
-| Response exponent          | Controls how sensitive the joystick feels  |
+1. Deadzone
+2. Normalization
+3. Exponential response
+4. Direction correction
 
-## Calibration Notes
+---
 
-Before final use, manually check:
+## 9. Deadzone
 
-1. The joystick center value when untouched.
-2. The minimum and maximum joystick readings.
-3. The servo center angle where the maze board is level.
-4. The safe minimum and maximum servo angles.
-5. Whether the servo movement is too fast or too slow.
-6. Whether the maze board shakes due to unstable servo movement.
+The deadzone prevents small joystick noise from moving the servo.
 
-## Safety Notes
+Example:
 
-* Do not power multiple servos directly from the ESP32 5V pin.
-* Use an external 5V power supply for the servos.
-* Always connect all grounds together.
-* Start with small servo angle limits first.
-* Increase servo limits only after confirming the maze mechanism moves safely.
-* Avoid forcing the servo beyond the mechanical limit of the maze board.
-
-## Common Git Commands
-
-After editing the code:
-
-```powershell
-git status
-git add .
-git commit -m "Update servo joystick control"
-git push
+```cpp
+deadzone = 100
 ```
 
-To download the latest GitHub version:
+If the joystick is only slightly away from center, the command becomes:
 
-```powershell
-git pull
+```cpp
+0.0f
 ```
 
-## Future Improvements
+If the board moves when the joystick is released, increase the deadzone.
 
-* Add support for more joysticks and servos
-* Add automatic joystick calibration
-* Add OLED display for servo status
-* Add button-controlled reset to center
-* Add smoother motion filtering
-* Add different difficulty modes for the maze game
+Example:
+
+```cpp
+deadzone = 150
+```
+
+---
+
+## 10. Exponential Control
+
+The code uses:
+
+```cpp
+normalized = applyExpo(normalized, RESPONSE_EXPONENT);
+```
+
+This makes the joystick less sensitive near the center.
+
+For example:
+
+```text
+Small joystick push → very small servo speed
+Large joystick push → much faster servo speed
+```
+
+This is useful for maze control because you need fine control near center.
+
+---
+
+## 11. Servo Output
+
+Function:
+
+```cpp
+sendServoIfNeeded(int ch)
+```
+
+This function only writes to the servo if the target angle has changed enough.
+
+```cpp
+if (fabsf(st.targetDeg - st.lastSentDeg) < TARGET_THRESHOLD_DEG) return;
+```
+
+This helps reduce unnecessary servo updates.
+
+---
+
+## 12. Main Movement Logic
+
+Function:
+
+```cpp
+updateChannel(int ch, float dt)
+```
+
+This is the most important function.
+
+It does these steps:
+
+```text
+1. Read joystick command
+2. Smooth the command
+3. Calculate servo speed
+4. Update target angle
+5. Return to center if joystick is released
+6. Send servo command if needed
+```
+
+---
+
+## 13. Active Movement
+
+When the joystick is pushed:
+
+```cpp
+st.speedDps = st.filteredCmd * MAX_SPEED_DPS;
+st.targetDeg += st.speedDps * dt;
+```
+
+This means:
+
+```text
+Joystick controls speed, not direct angle.
+```
+
+The longer you push the joystick, the more the board tilts.
+
+---
+
+## 14. Return to Center
+
+When the joystick is released, the code returns the servo to its center angle:
+
+```cpp
+st.targetDeg = moveToward(st.targetDeg, cfg.centerDeg, maxStep);
+```
+
+This makes the board slowly return to level.
+
+---
+
+## 15. setup()
+
+The `setup()` function does the startup process:
+
+```text
+1. Start Serial Monitor
+2. Start I2C
+3. Set ADC resolution
+4. Calibrate joystick centers
+5. Attach all servos
+6. Move all servos to center
+7. Start the control loop
+```
+
+---
+
+## 16. loop()
+
+The `loop()` function runs repeatedly.
+
+It has two main jobs:
+
+```text
+1. Update servo control at fixed interval
+2. Print debug information at fixed interval
+```
+
+The control update happens every:
+
+```cpp
+CONTROL_INTERVAL_MS
+```
+
+The debug print happens every:
+
+```cpp
+PRINT_INTERVAL_MS
+```
+
+---
+
+## 17. Debug Output
+
+The Serial Monitor prints this table:
+
+```text
+CH RAW  CTR  DELTA  CMD     SPD    TGT
+```
+
+Meaning:
+
+| Column | Meaning |
+|---|---|
+| `CH` | Channel number |
+| `RAW` | Current joystick ADC value |
+| `CTR` | Calibrated joystick center |
+| `DELTA` | Difference from center |
+| `CMD` | Smoothed command |
+| `SPD` | Servo speed in degrees/sec |
+| `TGT` | Target servo angle |
+
+This helps you tune the system.
+
+---
+
+## 18. Tuning Guide
+
+### Problem: Board shakes when joystick is released
+
+Try reducing:
+
+```cpp
+RETURN_SPEED_DPS
+```
+
+Example:
+
+```cpp
+static constexpr float RETURN_SPEED_DPS = 15.0f;
+```
+
+---
+
+### Problem: Board shakes while pushing joystick
+
+Try reducing:
+
+```cpp
+MAX_SPEED_DPS
+```
+
+Example:
+
+```cpp
+static constexpr float MAX_SPEED_DPS = 20.0f;
+```
+
+---
+
+### Problem: Board moves by itself near center
+
+Increase deadzone:
+
+```cpp
+deadzone = 150
+```
+
+or:
+
+```cpp
+deadzone = 200
+```
+
+---
+
+### Problem: Movement is too slow
+
+Increase:
+
+```cpp
+MAX_SPEED_DPS
+```
+
+Example:
+
+```cpp
+static constexpr float MAX_SPEED_DPS = 35.0f;
+```
+
+---
+
+### Problem: Board tilts too much
+
+Reduce:
+
+```cpp
+DEFAULT_SERVO_LIMIT_DEG
+```
+
+Example:
+
+```cpp
+static constexpr float DEFAULT_SERVO_LIMIT_DEG = 20.0f;
+```
+
+---
+
+### Problem: Small joystick push is too sensitive
+
+Increase:
+
+```cpp
+RESPONSE_EXPONENT
+```
+
+Example:
+
+```cpp
+static constexpr float RESPONSE_EXPONENT = 1.5f;
+```
+
+---
+
+## 19. Recommended Stable Starting Values
+
+For a stable maze board, try:
+
+```cpp
+static constexpr float MAX_SPEED_DPS = 20.0f;
+static constexpr float RETURN_SPEED_DPS = 15.0f;
+static constexpr float COMMAND_SMOOTH_ALPHA = 0.04f;
+static constexpr float RESPONSE_EXPONENT = 1.3f;
+static constexpr float DEFAULT_SERVO_LIMIT_DEG = 20.0f;
+```
+
+For each channel, try:
+
+```cpp
+deadzone = 150
+```
+
+---
+
+## 20. Simple Summary
+
+The code works like this:
+
+```text
+Joystick moves
+→ raw ADC value is read
+→ joystick value is calibrated around center
+→ deadzone removes small noise
+→ exponential curve makes small push gentle
+→ command is smoothed
+→ command becomes servo speed
+→ servo target angle changes gradually
+→ servo moves the maze board
+→ when joystick is released, servo returns to center
+```
+
+The most important concept is:
+
+```text
+The joystick controls how fast the servo moves, not the exact servo angle.
+```
+
+This is why the board movement feels smoother and more controllable for a maze game.
