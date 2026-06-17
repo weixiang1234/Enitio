@@ -1,6 +1,6 @@
 # Enitio Project Repository
 
-This repository contains projects for Enitio Amazing Race - Maze
+This repository contains projects for Enitio Amazing Race 
 
 ## Projects
 
